@@ -4,17 +4,21 @@ use decimal::d128;
 use serde::{Deserialize, Serialize};
 use std::{collections::HashMap, io};
 
-type ClientIdType = u16;
-type MoneyAmountType = d128;
-type AccountsType = HashMap<ClientIdType, AccountData>;
-type TransactionIdType = u32;
+type ClientId = u16;
+type TransactionId = u32;
+type Money = d128;
+
+pub struct Ledger {
+    accounts: HashMap<ClientId, Account>,
+    deposit_transactions_cache: HashMap<TransactionId, Money>,
+}
 
 #[derive(Debug, Serialize)]
-pub struct AccountData {
-    client: ClientIdType,
-    available: MoneyAmountType,
-    held: MoneyAmountType,
-    total: MoneyAmountType,
+struct Account {
+    client: ClientId,
+    available: Money,
+    held: Money,
+    total: Money,
     locked: bool,
 }
 
@@ -42,18 +46,18 @@ struct TransactionData {
     type_: TransactionType,
 
     #[serde(rename = "client")]
-    client: ClientIdType,
+    client: ClientId,
 
     #[serde(rename = "tx")]
-    id: TransactionIdType,
+    id: TransactionId,
 
     #[serde(rename = "amount")]
-    amount: Option<MoneyAmountType>,
+    amount: Option<Money>,
 }
 
-impl AccountData {
-    fn new(client: ClientIdType) -> AccountData {
-        AccountData {
+impl Account {
+    fn new(client: ClientId) -> Account {
+        Account {
             client,
             available: Default::default(),
             held: Default::default(),
@@ -63,93 +67,96 @@ impl AccountData {
     }
 }
 
-pub fn load_transactions(transactions_fpath: &str) -> anyhow::Result<AccountsType> {
-    let mut accounts = AccountsType::new();
-    let mut deposit_transactions_cache = HashMap::<TransactionIdType, MoneyAmountType>::new();
+impl Ledger {
+    fn new() -> Ledger {
+        Ledger {
+            accounts: Default::default(),
+            deposit_transactions_cache: Default::default(),
+        }
+    }
 
-    let mut rdr = csv::ReaderBuilder::new()
+    fn process_transaction(&mut self, transaction: &TransactionData) -> anyhow::Result<()> {
+        let client = transaction.client;
+        let account = self.accounts.entry(client).or_insert(Account::new(client));
+
+        match transaction.type_ {
+            TransactionType::Deposit => {
+                let amount = transaction
+                    .amount
+                    .context("'deposit' transaction must have 'amount' value")?;
+                account.available += amount;
+                account.total += amount;
+                // assumption: only 'deposit' transactions can be disputed
+                self.deposit_transactions_cache
+                    .insert(transaction.id, amount);
+            }
+            TransactionType::Withdrawal => {
+                let amount = transaction
+                    .amount
+                    .context("'withdrawal' transaction must have 'amount' value")?;
+                if account.available >= amount && account.total >= amount {
+                    account.available -= amount;
+                    account.total -= amount;
+                } else {
+                    bail!("funds are not sufficient for withdrawal")
+                }
+            }
+            TransactionType::Dispute => {
+                if let Some(amount) = self.deposit_transactions_cache.get(&transaction.id) {
+                    account.held += *amount;
+                    if account.available >= *amount {
+                        account.available -= *amount;
+                    } else {
+                        bail!("disputed value is greater than 'available'")
+                    }
+                }
+            }
+            TransactionType::Resolve => {
+                if let Some(amount) = self.deposit_transactions_cache.get(&transaction.id) {
+                    if account.held >= *amount {
+                        account.held -= *amount;
+                    } else {
+                        bail!("'held' is greater than resolved value")
+                    }
+                    account.available += *amount;
+                };
+            }
+            TransactionType::Chargeback => {
+                if let Some(amount) = self.deposit_transactions_cache.get(&transaction.id) {
+                    account.held -= *amount;
+                    account.total -= *amount;
+                    account.locked = true;
+                };
+            }
+        }
+
+        Ok(())
+    }
+}
+
+pub fn load_transactions(transactions_fpath: &str) -> anyhow::Result<Ledger> {
+    let mut ledger = Ledger::new();
+
+    let mut reader = csv::ReaderBuilder::new()
         .trim(Trim::All)
         .from_path(transactions_fpath)?;
 
-    for line in rdr.deserialize() {
+    for line in reader.deserialize() {
         let transaction: TransactionData = line?;
-        //println!("{:?}", transaction);
-        process_transaction(&mut accounts, &mut deposit_transactions_cache, &transaction)
+        ledger
+            .process_transaction(&transaction)
             .context(format!("cannot process transaction: id={}", transaction.id))?;
     }
 
-    Ok(accounts)
+    Ok(ledger)
 }
 
-fn process_transaction(
-    accounts: &mut HashMap<u16, AccountData>,
-    deposit_transactions_cache: &mut HashMap<TransactionIdType, MoneyAmountType>,
-    transaction: &TransactionData,
-) -> anyhow::Result<()> {
-    let client = transaction.client;
-    let account = accounts.entry(client).or_insert(AccountData::new(client));
-
-    match transaction.type_ {
-        TransactionType::Deposit => {
-            let amount = transaction
-                .amount
-                .context("'deposit' transaction must have 'amount' value")?;
-            account.available += amount;
-            account.total += amount;
-            // assumption: only 'deposit' transactions can be disputed
-            deposit_transactions_cache.insert(transaction.id, amount);
-        }
-        TransactionType::Withdrawal => {
-            let amount = transaction
-                .amount
-                .context("'withdrawal' transaction must have 'amount' value")?;
-            if account.available >= amount && account.total >= amount {
-                account.available -= amount;
-                account.total -= amount;
-            } else {
-                bail!("funds are not sufficient for withdrawal")
-            }
-        }
-        TransactionType::Dispute => {
-            if let Some(amount) = deposit_transactions_cache.get(&transaction.id) {
-                account.held += *amount;
-                if account.available >= *amount {
-                    account.available -= *amount;
-                } else {
-                    bail!("disputed value is greater than 'available'")
-                }
-            }
-        }
-        TransactionType::Resolve => {
-            if let Some(amount) = deposit_transactions_cache.get(&transaction.id) {
-                if account.held >= *amount {
-                    account.held -= *amount;
-                }
-                else {
-                    bail!("'held' is greater than resolved value")
-                }
-                account.available += *amount;
-            };
-        }
-        TransactionType::Chargeback => {
-            if let Some(amount) = deposit_transactions_cache.get(&transaction.id) {
-                account.held -= *amount;
-                account.total -= *amount;
-                account.locked = true;
-            };
-        }
+pub fn print_accounts(ledger: &Ledger) -> anyhow::Result<()> {
+    let mut writer = csv::Writer::from_writer(io::stdout());
+    for account in ledger.accounts.values() {
+        writer.serialize(account)?;
     }
 
-    Ok(())
-}
-
-pub fn print_accounts(accounts: &AccountsType) -> anyhow::Result<()> {
-    let mut wtr = csv::Writer::from_writer(io::stdout());
-    for account in accounts.values() {
-        //println!("{:?}", account);
-        wtr.serialize(account)?;
-    }
-
-    wtr.flush()?;
+    writer.flush()?;
     Ok(())
 }
