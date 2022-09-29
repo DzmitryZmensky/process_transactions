@@ -1,11 +1,11 @@
 type, client, tx, amount
-deposit,    1, 1, 3.0
+deposit,    1, 1, 3.0001
 withdrawal, 1, 2, 2.0
-deposit,    2, 3, 1.5
-deposit,    2, 4, 2.5
+deposit,    2, 3, 1.5002
+deposit,    2, 4, 2.5003
 dispute,    2, 4,
 resolve,    2, 4,
-deposit,    3, 5, 1.5
-deposit,    3, 6, 2.5
+deposit,    3, 5, 1.5004
+deposit,    3, 6, 2.5005
 dispute,    3, 5,
 chargeback, 3, 5,

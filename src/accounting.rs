@@ -1,10 +1,11 @@
 use anyhow::{self, bail, Context, Ok};
 use csv::Trim;
+use decimal::d128;
 use serde::{Deserialize, Serialize};
 use std::{collections::HashMap, io};
 
 type ClientIdType = u16;
-type MoneyAmountType = f64;
+type MoneyAmountType = d128;
 type AccountsType = HashMap<ClientIdType, AccountData>;
 type TransactionIdType = u32;
 
@@ -54,9 +55,9 @@ impl AccountData {
     fn new(client: ClientIdType) -> AccountData {
         AccountData {
             client,
-            available: 0.,
-            held: 0.,
-            total: 0.,
+            available: Default::default(),
+            held: Default::default(),
+            total: Default::default(),
             locked: false,
         }
     }
@@ -111,7 +112,7 @@ fn process_transaction(
         }
         TransactionType::Dispute => {
             if let Some(amount) = deposit_transactions_cache.get(&transaction.id) {
-                account.held += amount;
+                account.held += *amount;
                 if account.available >= *amount {
                     account.available -= *amount;
                 } else {
@@ -127,13 +128,13 @@ fn process_transaction(
                 else {
                     bail!("'held' is greater than resolved value")
                 }
-                account.available += amount;
+                account.available += *amount;
             };
         }
         TransactionType::Chargeback => {
             if let Some(amount) = deposit_transactions_cache.get(&transaction.id) {
-                account.held -= amount;
-                account.total -= amount;
+                account.held -= *amount;
+                account.total -= *amount;
                 account.locked = true;
             };
         }
