@@ -2,7 +2,7 @@ use anyhow::{self, bail, Context, Ok};
 use csv::Trim;
 use decimal::d128;
 use serde::{Deserialize, Serialize};
-use std::{collections::HashMap, io};
+use std::{collections::HashMap, io::{Write}};
 
 type ClientId = u16;
 type TransactionId = u32;
@@ -20,6 +20,9 @@ struct Account {
     held: Money,
     total: Money,
     locked: bool,
+
+    #[serde(skip_serializing)]
+    disputed_txs: HashMap<TransactionId, Money>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -63,6 +66,7 @@ impl Account {
             held: Default::default(),
             total: Default::default(),
             locked: false,
+            disputed_txs: Default::default(),
         }
     }
 }
@@ -80,6 +84,7 @@ impl Ledger {
         let account = self.accounts.entry(client).or_insert(Account::new(client));
 
         match transaction.type_ {
+            // assumption: 'locked' state is only an indicator of chargeback and doesn't impact any operation - see all assumptions in readme.txt
             TransactionType::Deposit => {
                 let amount = transaction
                     .amount
@@ -102,29 +107,22 @@ impl Ledger {
                 }
             }
             TransactionType::Dispute => {
-                if let Some(amount) = self.deposit_transactions_cache.get(&transaction.id) {
-                    account.held += *amount;
-                    if account.available >= *amount {
-                        account.available -= *amount;
-                    } else {
-                        bail!("disputed value is greater than 'available'")
-                    }
+                if let Some(amount) = self.deposit_transactions_cache.remove(&transaction.id) {
+                    account.disputed_txs.insert(transaction.id, amount);
+                    account.held += amount;
+                    account.available -= amount; // the balance can become negative - see all assumptions in readme.txt
                 }
             }
             TransactionType::Resolve => {
-                if let Some(amount) = self.deposit_transactions_cache.get(&transaction.id) {
-                    if account.held >= *amount {
-                        account.held -= *amount;
-                    } else {
-                        bail!("'held' is greater than resolved value")
-                    }
-                    account.available += *amount;
+                if let Some(amount) = account.disputed_txs.remove(&transaction.id) {
+                    account.held -= amount;
+                    account.available += amount;
                 };
             }
             TransactionType::Chargeback => {
-                if let Some(amount) = self.deposit_transactions_cache.get(&transaction.id) {
-                    account.held -= *amount;
-                    account.total -= *amount;
+                if let Some(amount) = account.disputed_txs.remove(&transaction.id) {
+                    account.held -= amount;
+                    account.total -= amount;
                     account.locked = true;
                 };
             }
@@ -152,8 +150,8 @@ pub fn load_transactions(transactions_fpath: &str) -> anyhow::Result<Ledger> {
     Ok(ledger)
 }
 
-pub fn print_accounts(ledger: &Ledger) -> anyhow::Result<()> {
-    let mut writer = csv::Writer::from_writer(io::stdout());
+pub fn output_accounts<W: Write>(ledger: &Ledger, output: &mut W) -> anyhow::Result<()> {
+    let mut writer = csv::Writer::from_writer(output);
     for account in ledger.accounts.values() {
         writer.serialize(account)?;
     }
@@ -338,6 +336,25 @@ mod tests {
                 false,
             );
         }
+        {
+            // duplicate 'resolve'
+            let tx = Transaction {
+                type_: TransactionType::Resolve,
+                client: CLIENT1,
+                id: 2, // second deposit
+                amount: None,
+            };
+
+            ledger.process_transaction(&tx).unwrap();
+
+            assert_account(
+                &ledger.accounts[&CLIENT1],
+                d128!(0.0003),
+                d128!(0.0000),
+                d128!(0.0003),
+                false,
+            );
+        }
     }
 
     #[test]
@@ -420,6 +437,91 @@ mod tests {
                 d128!(0.0001),
                 d128!(0.0000),
                 d128!(0.0001),
+                true,
+            );
+        }
+    }
+
+    #[test]
+    fn negative_balance_after_chargeback() {
+        let mut ledger = Ledger::new();
+
+        {
+            // deposit
+            let tx = Transaction {
+                type_: TransactionType::Deposit,
+                client: CLIENT1,
+                id: 1,
+                amount: Some(d128!(0.0001)),
+            };
+
+            ledger.process_transaction(&tx).unwrap();
+
+            assert_account(
+                &ledger.accounts[&CLIENT1],
+                d128!(0.0001),
+                d128!(0),
+                d128!(0.0001),
+                false,
+            );
+        }
+
+        {
+            // withdraw
+            let tx = Transaction {
+                type_: TransactionType::Withdrawal,
+                client: CLIENT1,
+                id: 2,
+                amount: Some(d128!(0.0001)),
+            };
+
+            ledger.process_transaction(&tx).unwrap();
+
+            assert_account(
+                &ledger.accounts[&CLIENT1],
+                d128!(0),
+                d128!(0),
+                d128!(0),
+                false,
+            );
+        }
+
+        {
+            // dispute
+            let tx = Transaction {
+                type_: TransactionType::Dispute,
+                client: CLIENT1,
+                id: 1,
+                amount: None,
+            };
+
+            ledger.process_transaction(&tx).unwrap();
+
+            assert_account(
+                &ledger.accounts[&CLIENT1],
+                d128!(-0.0001),
+                d128!(0.0001),
+                d128!(0.0000),
+                false,
+            );
+        }
+
+        {
+            // chargeback
+            let tx = Transaction {
+                type_: TransactionType::Chargeback,
+                client: CLIENT1,
+                id: 1,
+                amount: None,
+            };
+
+            ledger.process_transaction(&tx).unwrap();
+
+            assert_account(
+                &ledger.accounts[&CLIENT1],
+                d128!(-0.0001),
+                d128!(0.0000),
+                d128!(-0.0001),
                 true,
             );
         }
