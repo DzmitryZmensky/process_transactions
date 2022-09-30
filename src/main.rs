@@ -3,14 +3,12 @@ use anyhow::{self, bail, Context, Ok};
 mod accounting;
 
 fn main() -> anyhow::Result<()> {
-    let cmdline_params = parse_cmdline()
-        .context("cannot parse command line parametes")?;
+    let cmdline_params = parse_cmdline().context("cannot parse command line parametes")?;
 
     let ledger = accounting::load_transactions(&cmdline_params.transactions_fpath)
         .context("cannot load transactions")?;
 
-    accounting::print_accounts(&ledger)
-        .context("cannot print accounts")?;
+    accounting::print_accounts(&ledger).context("cannot print accounts")?;
 
     Ok(())
 }

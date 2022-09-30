@@ -139,7 +139,8 @@ pub fn load_transactions(transactions_fpath: &str) -> anyhow::Result<Ledger> {
 
     let mut reader = csv::ReaderBuilder::new()
         .trim(Trim::All)
-        .from_path(transactions_fpath)?;
+        .from_path(transactions_fpath)
+        .context(transactions_fpath.to_string())?;
 
     for line in reader.deserialize() {
         let transaction: Transaction = line?;
@@ -163,42 +164,53 @@ pub fn print_accounts(ledger: &Ledger) -> anyhow::Result<()> {
 
 #[cfg(test)]
 mod tests {
+    use super::{Account, ClientId, Ledger, Money, Transaction, TransactionId, TransactionType};
     use decimal::d128;
-    use super::{Ledger, Transaction, TransactionType, ClientId, TransactionId, Money, Account};
 
-    const CLIENT1:ClientId = 1;
-    //const CLIENT2:ClientId = 2;
+    const CLIENT1: ClientId = 1;
 
     #[test]
     fn deposit_partial_withdraw_success() {
         let mut ledger = Ledger::new();
 
-        { // deposit
-            let tx = Transaction { 
-                type_: TransactionType::Deposit, 
-                client: CLIENT1, 
-                id: 1, 
-                amount: Some(d128!(0.0003)) 
+        {
+            // deposit
+            let tx = Transaction {
+                type_: TransactionType::Deposit,
+                client: CLIENT1,
+                id: 1,
+                amount: Some(d128!(0.0003)),
             };
 
             ledger.process_transaction(&tx).unwrap();
 
-            assert_account(&ledger.accounts[&CLIENT1], 
-                d128!(0.0003), d128!(0), d128!(0.0003), false);
+            assert_account(
+                &ledger.accounts[&CLIENT1],
+                d128!(0.0003),
+                d128!(0),
+                d128!(0.0003),
+                false,
+            );
         }
 
-        { // withdraw
-            let tx = Transaction { 
-                type_: TransactionType::Withdrawal, 
-                client: CLIENT1, 
-                id: 2, 
-                amount: Some(d128!(0.0001)) 
+        {
+            // withdraw
+            let tx = Transaction {
+                type_: TransactionType::Withdrawal,
+                client: CLIENT1,
+                id: 2,
+                amount: Some(d128!(0.0001)),
             };
 
             ledger.process_transaction(&tx).unwrap();
 
-            assert_account(&ledger.accounts[&CLIENT1], 
-                d128!(0.0002), d128!(0), d128!(0.0002), false);
+            assert_account(
+                &ledger.accounts[&CLIENT1],
+                d128!(0.0002),
+                d128!(0),
+                d128!(0.0002),
+                false,
+            );
         }
     }
 
@@ -206,30 +218,39 @@ mod tests {
     fn excessive_withdraw_should_fail() {
         let mut ledger = Ledger::new();
 
-        { // deposit
-            let tx = Transaction { 
-                type_: TransactionType::Deposit, 
-                client: CLIENT1, 
-                id: 1, 
-                amount: Some(d128!(0.0003)) 
+        {
+            // deposit
+            let tx = Transaction {
+                type_: TransactionType::Deposit,
+                client: CLIENT1,
+                id: 1,
+                amount: Some(d128!(0.0003)),
             };
 
             ledger.process_transaction(&tx).unwrap();
 
-            assert_account(&ledger.accounts[&CLIENT1], 
-                d128!(0.0003), d128!(0), d128!(0.0003), false);
+            assert_account(
+                &ledger.accounts[&CLIENT1],
+                d128!(0.0003),
+                d128!(0),
+                d128!(0.0003),
+                false,
+            );
         }
-        
-        { // try to withdraw
-            let tx = Transaction { 
-                type_: TransactionType::Withdrawal, 
-                client: CLIENT1, 
-                id: 2, 
-                amount: Some(d128!(0.0004)) // the value is greater than deposited one
+
+        {
+            // try to withdraw
+            let tx = Transaction {
+                type_: TransactionType::Withdrawal,
+                client: CLIENT1,
+                id: 2,
+                amount: Some(d128!(0.0004)), // the value is greater than deposited one
             };
 
-            let error_text = ledger.process_transaction(&tx)
-                .expect_err("expected Error").to_string();
+            let error_text = ledger
+                .process_transaction(&tx)
+                .expect_err("expected Error")
+                .to_string();
             assert_eq!(error_text, "funds are not sufficient for withdrawal");
         }
     }
@@ -238,60 +259,84 @@ mod tests {
     fn dispute_resolve_success() {
         let mut ledger = Ledger::new();
 
-        { // deposit 1
-            let tx = Transaction { 
-                type_: TransactionType::Deposit, 
-                client: CLIENT1, 
-                id: 1, 
-                amount: Some(d128!(0.0001)) 
+        {
+            // deposit 1
+            let tx = Transaction {
+                type_: TransactionType::Deposit,
+                client: CLIENT1,
+                id: 1,
+                amount: Some(d128!(0.0001)),
             };
 
             ledger.process_transaction(&tx).unwrap();
 
-            assert_account(&ledger.accounts[&CLIENT1], 
-                d128!(0.0001), d128!(0), d128!(0.0001), false);
+            assert_account(
+                &ledger.accounts[&CLIENT1],
+                d128!(0.0001),
+                d128!(0),
+                d128!(0.0001),
+                false,
+            );
         }
 
-        { // deposit 2
-            let tx = Transaction { 
-                type_: TransactionType::Deposit, 
-                client: CLIENT1, 
-                id: 2, 
-                amount: Some(d128!(0.0002)) 
+        {
+            // deposit 2
+            let tx = Transaction {
+                type_: TransactionType::Deposit,
+                client: CLIENT1,
+                id: 2,
+                amount: Some(d128!(0.0002)),
             };
 
             ledger.process_transaction(&tx).unwrap();
 
-            assert_account(&ledger.accounts[&CLIENT1], 
-                d128!(0.0003), d128!(0), d128!(0.0003), false);
+            assert_account(
+                &ledger.accounts[&CLIENT1],
+                d128!(0.0003),
+                d128!(0),
+                d128!(0.0003),
+                false,
+            );
         }
 
-        { // dispute
-            let tx = Transaction { 
-                type_: TransactionType::Dispute, 
-                client: CLIENT1, 
+        {
+            // dispute
+            let tx = Transaction {
+                type_: TransactionType::Dispute,
+                client: CLIENT1,
                 id: 2, // second deposit
-                amount: None
+                amount: None,
             };
 
             ledger.process_transaction(&tx).unwrap();
 
-            assert_account(&ledger.accounts[&CLIENT1], 
-                d128!(0.0001), d128!(0.0002), d128!(0.0003), false);
+            assert_account(
+                &ledger.accounts[&CLIENT1],
+                d128!(0.0001),
+                d128!(0.0002),
+                d128!(0.0003),
+                false,
+            );
         }
 
-        { // resolve
-            let tx = Transaction { 
-                type_: TransactionType::Resolve, 
-                client: CLIENT1, 
+        {
+            // resolve
+            let tx = Transaction {
+                type_: TransactionType::Resolve,
+                client: CLIENT1,
                 id: 2, // second deposit
-                amount: None
+                amount: None,
             };
 
             ledger.process_transaction(&tx).unwrap();
 
-            assert_account(&ledger.accounts[&CLIENT1], 
-                d128!(0.0003), d128!(0.0000), d128!(0.0003), false);
+            assert_account(
+                &ledger.accounts[&CLIENT1],
+                d128!(0.0003),
+                d128!(0.0000),
+                d128!(0.0003),
+                false,
+            );
         }
     }
 
@@ -299,60 +344,84 @@ mod tests {
     fn dispute_chargeback_success() {
         let mut ledger = Ledger::new();
 
-        { // deposit 1
-            let tx = Transaction { 
-                type_: TransactionType::Deposit, 
-                client: CLIENT1, 
-                id: 1, 
-                amount: Some(d128!(0.0001)) 
+        {
+            // deposit 1
+            let tx = Transaction {
+                type_: TransactionType::Deposit,
+                client: CLIENT1,
+                id: 1,
+                amount: Some(d128!(0.0001)),
             };
 
             ledger.process_transaction(&tx).unwrap();
 
-            assert_account(&ledger.accounts[&CLIENT1], 
-                d128!(0.0001), d128!(0), d128!(0.0001), false);
+            assert_account(
+                &ledger.accounts[&CLIENT1],
+                d128!(0.0001),
+                d128!(0),
+                d128!(0.0001),
+                false,
+            );
         }
 
-        { // deposit 2
-            let tx = Transaction { 
-                type_: TransactionType::Deposit, 
-                client: CLIENT1, 
-                id: 2, 
-                amount: Some(d128!(0.0002)) 
+        {
+            // deposit 2
+            let tx = Transaction {
+                type_: TransactionType::Deposit,
+                client: CLIENT1,
+                id: 2,
+                amount: Some(d128!(0.0002)),
             };
 
             ledger.process_transaction(&tx).unwrap();
 
-            assert_account(&ledger.accounts[&CLIENT1], 
-                d128!(0.0003), d128!(0), d128!(0.0003), false);
+            assert_account(
+                &ledger.accounts[&CLIENT1],
+                d128!(0.0003),
+                d128!(0),
+                d128!(0.0003),
+                false,
+            );
         }
 
-        { // dispute
-            let tx = Transaction { 
-                type_: TransactionType::Dispute, 
-                client: CLIENT1, 
+        {
+            // dispute
+            let tx = Transaction {
+                type_: TransactionType::Dispute,
+                client: CLIENT1,
                 id: 2, // second deposit
-                amount: None
+                amount: None,
             };
 
             ledger.process_transaction(&tx).unwrap();
 
-            assert_account(&ledger.accounts[&CLIENT1], 
-                d128!(0.0001), d128!(0.0002), d128!(0.0003), false);
+            assert_account(
+                &ledger.accounts[&CLIENT1],
+                d128!(0.0001),
+                d128!(0.0002),
+                d128!(0.0003),
+                false,
+            );
         }
 
-        { // chargeback
-            let tx = Transaction { 
-                type_: TransactionType::Chargeback, 
-                client: CLIENT1, 
+        {
+            // chargeback
+            let tx = Transaction {
+                type_: TransactionType::Chargeback,
+                client: CLIENT1,
                 id: 2, // second deposit
-                amount: None
+                amount: None,
             };
 
             ledger.process_transaction(&tx).unwrap();
 
-            assert_account(&ledger.accounts[&CLIENT1], 
-                d128!(0.0001), d128!(0.0000), d128!(0.0001), true);
+            assert_account(
+                &ledger.accounts[&CLIENT1],
+                d128!(0.0001),
+                d128!(0.0000),
+                d128!(0.0001),
+                true,
+            );
         }
     }
 
@@ -361,37 +430,57 @@ mod tests {
         let mut ledger = Ledger::new();
         let not_existing_tx_id: TransactionId = 999;
 
-        { // deposit 1
-            let tx = Transaction { 
-                type_: TransactionType::Deposit, 
-                client: CLIENT1, 
-                id: 1, 
-                amount: Some(d128!(0.0001)) 
+        {
+            // deposit 1
+            let tx = Transaction {
+                type_: TransactionType::Deposit,
+                client: CLIENT1,
+                id: 1,
+                amount: Some(d128!(0.0001)),
             };
 
             ledger.process_transaction(&tx).unwrap();
 
-            assert_account(&ledger.accounts[&CLIENT1], 
-                d128!(0.0001), d128!(0), d128!(0.0001), false);
+            assert_account(
+                &ledger.accounts[&CLIENT1],
+                d128!(0.0001),
+                d128!(0),
+                d128!(0.0001),
+                false,
+            );
         }
 
-        for tx_type in vec![TransactionType::Dispute, TransactionType::Resolve, TransactionType::Chargeback] {
-            let tx = Transaction { 
-                type_: tx_type, 
-                client: CLIENT1, 
+        for tx_type in vec![
+            TransactionType::Dispute,
+            TransactionType::Resolve,
+            TransactionType::Chargeback,
+        ] {
+            let tx = Transaction {
+                type_: tx_type,
+                client: CLIENT1,
                 id: not_existing_tx_id,
-                amount: None
+                amount: None,
             };
 
             ledger.process_transaction(&tx).unwrap();
             // balance shouldn't change
-            assert_account(&ledger.accounts[&CLIENT1], 
-                d128!(0.0001), d128!(0), d128!(0.0001), false);
-
+            assert_account(
+                &ledger.accounts[&CLIENT1],
+                d128!(0.0001),
+                d128!(0),
+                d128!(0.0001),
+                false,
+            );
         }
     }
 
-    fn assert_account(account: &Account, available: Money, held: Money, total: Money, locked: bool) {
+    fn assert_account(
+        account: &Account,
+        available: Money,
+        held: Money,
+        total: Money,
+        locked: bool,
+    ) {
         assert_eq!(available, account.available, "unexpected 'available'");
         assert_eq!(held, account.held, "unexpected 'held'");
         assert_eq!(total, account.total, "unexpected 'total'");
