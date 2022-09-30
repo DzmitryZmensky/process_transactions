@@ -46,7 +46,7 @@ enum TransactionType {
 #[derive(Debug, Deserialize)]
 struct Transaction {
     #[serde(rename = "type")]
-    type_: TransactionType,
+    tx_type: TransactionType,
 
     #[serde(rename = "client")]
     client: ClientId,
@@ -83,7 +83,7 @@ impl Ledger {
         let client = transaction.client;
         let account = self.accounts.entry(client).or_insert(Account::new(client));
 
-        match transaction.type_ {
+        match transaction.tx_type {
             // assumption: 'locked' state is only an indicator of chargeback and doesn't impact any operation - see all assumptions in readme.txt
             TransactionType::Deposit => {
                 let amount = transaction
@@ -174,7 +174,7 @@ mod tests {
         {
             // deposit
             let tx = Transaction {
-                type_: TransactionType::Deposit,
+                tx_type: TransactionType::Deposit,
                 client: CLIENT1,
                 id: 1,
                 amount: Some(d128!(0.0003)),
@@ -194,7 +194,7 @@ mod tests {
         {
             // withdraw
             let tx = Transaction {
-                type_: TransactionType::Withdrawal,
+                tx_type: TransactionType::Withdrawal,
                 client: CLIENT1,
                 id: 2,
                 amount: Some(d128!(0.0001)),
@@ -219,7 +219,7 @@ mod tests {
         {
             // deposit
             let tx = Transaction {
-                type_: TransactionType::Deposit,
+                tx_type: TransactionType::Deposit,
                 client: CLIENT1,
                 id: 1,
                 amount: Some(d128!(0.0003)),
@@ -239,7 +239,7 @@ mod tests {
         {
             // try to withdraw
             let tx = Transaction {
-                type_: TransactionType::Withdrawal,
+                tx_type: TransactionType::Withdrawal,
                 client: CLIENT1,
                 id: 2,
                 amount: Some(d128!(0.0004)), // the value is greater than deposited one
@@ -260,7 +260,7 @@ mod tests {
         {
             // deposit 1
             let tx = Transaction {
-                type_: TransactionType::Deposit,
+                tx_type: TransactionType::Deposit,
                 client: CLIENT1,
                 id: 1,
                 amount: Some(d128!(0.0001)),
@@ -280,7 +280,7 @@ mod tests {
         {
             // deposit 2
             let tx = Transaction {
-                type_: TransactionType::Deposit,
+                tx_type: TransactionType::Deposit,
                 client: CLIENT1,
                 id: 2,
                 amount: Some(d128!(0.0002)),
@@ -300,7 +300,7 @@ mod tests {
         {
             // dispute
             let tx = Transaction {
-                type_: TransactionType::Dispute,
+                tx_type: TransactionType::Dispute,
                 client: CLIENT1,
                 id: 2, // second deposit
                 amount: None,
@@ -320,7 +320,7 @@ mod tests {
         {
             // resolve
             let tx = Transaction {
-                type_: TransactionType::Resolve,
+                tx_type: TransactionType::Resolve,
                 client: CLIENT1,
                 id: 2, // second deposit
                 amount: None,
@@ -339,7 +339,7 @@ mod tests {
         {
             // duplicate 'resolve'
             let tx = Transaction {
-                type_: TransactionType::Resolve,
+                tx_type: TransactionType::Resolve,
                 client: CLIENT1,
                 id: 2, // second deposit
                 amount: None,
@@ -364,7 +364,7 @@ mod tests {
         {
             // deposit 1
             let tx = Transaction {
-                type_: TransactionType::Deposit,
+                tx_type: TransactionType::Deposit,
                 client: CLIENT1,
                 id: 1,
                 amount: Some(d128!(0.0001)),
@@ -384,7 +384,7 @@ mod tests {
         {
             // deposit 2
             let tx = Transaction {
-                type_: TransactionType::Deposit,
+                tx_type: TransactionType::Deposit,
                 client: CLIENT1,
                 id: 2,
                 amount: Some(d128!(0.0002)),
@@ -404,7 +404,7 @@ mod tests {
         {
             // dispute
             let tx = Transaction {
-                type_: TransactionType::Dispute,
+                tx_type: TransactionType::Dispute,
                 client: CLIENT1,
                 id: 2, // second deposit
                 amount: None,
@@ -424,7 +424,7 @@ mod tests {
         {
             // chargeback
             let tx = Transaction {
-                type_: TransactionType::Chargeback,
+                tx_type: TransactionType::Chargeback,
                 client: CLIENT1,
                 id: 2, // second deposit
                 amount: None,
@@ -449,7 +449,7 @@ mod tests {
         {
             // deposit
             let tx = Transaction {
-                type_: TransactionType::Deposit,
+                tx_type: TransactionType::Deposit,
                 client: CLIENT1,
                 id: 1,
                 amount: Some(d128!(0.0001)),
@@ -469,7 +469,7 @@ mod tests {
         {
             // withdraw
             let tx = Transaction {
-                type_: TransactionType::Withdrawal,
+                tx_type: TransactionType::Withdrawal,
                 client: CLIENT1,
                 id: 2,
                 amount: Some(d128!(0.0001)),
@@ -489,7 +489,7 @@ mod tests {
         {
             // dispute
             let tx = Transaction {
-                type_: TransactionType::Dispute,
+                tx_type: TransactionType::Dispute,
                 client: CLIENT1,
                 id: 1,
                 amount: None,
@@ -509,7 +509,7 @@ mod tests {
         {
             // chargeback
             let tx = Transaction {
-                type_: TransactionType::Chargeback,
+                tx_type: TransactionType::Chargeback,
                 client: CLIENT1,
                 id: 1,
                 amount: None,
@@ -535,7 +535,7 @@ mod tests {
         {
             // deposit 1
             let tx = Transaction {
-                type_: TransactionType::Deposit,
+                tx_type: TransactionType::Deposit,
                 client: CLIENT1,
                 id: 1,
                 amount: Some(d128!(0.0001)),
@@ -558,7 +558,7 @@ mod tests {
             TransactionType::Chargeback,
         ] {
             let tx = Transaction {
-                type_: tx_type,
+                tx_type,
                 client: CLIENT1,
                 id: not_existing_tx_id,
                 amount: None,
